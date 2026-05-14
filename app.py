@@ -7,10 +7,11 @@ app = Flask(__name__)
 # ================= DYNAMIC CONNECTION =================
 def get_connection(server, database):
     return pyodbc.connect(
-        "DRIVER={SQL Server};"
+        "DRIVER={ODBC Driver 18 for SQL Server};"
         f"SERVER={server};"
         f"DATABASE={database};"
         "Trusted_Connection=yes;"
+        "TrustServerCertificate=yes;"
     )
 
 # ================= GET DATABASE NAME =================
