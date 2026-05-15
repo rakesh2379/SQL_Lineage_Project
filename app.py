@@ -4,242 +4,228 @@ import re
 
 app = Flask(__name__)
 
-# ================= DYNAMIC CONNECTION =================
+# -------------------------
+# CONNECTION FUNCTION
+# -------------------------
 def get_connection(server, database):
-    return pyodbc.connect(
-        "DRIVER={ODBC Driver 18 for SQL Server};"
+    conn_str = (
+        "DRIVER={ODBC Driver 17 for SQL Server};"
         f"SERVER={server};"
         f"DATABASE={database};"
         "Trusted_Connection=yes;"
-        "TrustServerCertificate=yes;"
     )
+    return pyodbc.connect(conn_str)
 
-# ================= GET DATABASE NAME =================
-def get_database_name(server, database):
-    conn = get_connection(server, database)
-    cursor = conn.cursor()
-    cursor.execute("SELECT DB_NAME()")
-    db = cursor.fetchone()[0]
-    conn.close()
-    return db
 
-# ================= GET TABLES =================
+# -------------------------
+# GET TABLE STRUCTURE
+# -------------------------
 def get_tables(server, database):
     conn = get_connection(server, database)
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT TABLE_NAME
+        SELECT TABLE_NAME 
         FROM INFORMATION_SCHEMA.TABLES
         WHERE TABLE_TYPE='BASE TABLE'
+        ORDER BY TABLE_NAME
     """)
+    tables = [row[0] for row in cursor.fetchall()]
 
-    tables = [r[0] for r in cursor.fetchall()]
+    table_list = []
+    for t in tables:
+        cursor.execute(f"""
+            SELECT COLUMN_NAME 
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME='{t}'
+            ORDER BY ORDINAL_POSITION
+        """)
+        cols = [c[0] for c in cursor.fetchall()]
+        table_list.append({"name": t, "columns": cols})
+
     conn.close()
-    return tables
+    return table_list
 
-# ================= GET TABLE COLUMNS =================
-def get_table_columns(server, database, table):
+
+# -------------------------
+# GET VIEWS + PROCEDURES
+# -------------------------
+def get_objects(server, database):
     conn = get_connection(server, database)
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT COLUMN_NAME
-        FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_NAME = ?
-    """, (table,))
-
-    cols = [r[0] for r in cursor.fetchall()]
-    conn.close()
-    return cols
-
-# ================= GET VIEWS =================
-def get_views(server, database):
-    conn = get_connection(server, database)
-    cursor = conn.cursor()
-    cursor.execute("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.VIEWS")
-    views = [r[0] for r in cursor.fetchall()]
-    conn.close()
-    return views
-
-# ================= GET PROCEDURES =================
-def get_procedures(server, database):
-    conn = get_connection(server, database)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT name
+        SELECT name, type_desc 
         FROM sys.objects
-        WHERE type = 'P'
+        WHERE type IN ('V','P')
+        ORDER BY type_desc, name
     """)
-
-    procs = [r[0] for r in cursor.fetchall()]
+    objects = cursor.fetchall()
     conn.close()
-    return procs
 
-# ================= GET DEFINITION =================
-def get_definition(server, database, obj):
+    results = []
+    for name, type_desc in objects:
+        results.append({"name": name, "type": type_desc})
+
+    return results
+
+
+# -------------------------
+# GET OBJECT DEFINITION
+# -------------------------
+def get_definition(server, database, obj_name):
     conn = get_connection(server, database)
     cursor = conn.cursor()
-    cursor.execute("SELECT OBJECT_DEFINITION(OBJECT_ID(?))", (obj,))
+
+    cursor.execute("""
+        SELECT definition
+        FROM sys.sql_modules
+        WHERE object_id = OBJECT_ID(?)
+    """, obj_name)
+
     row = cursor.fetchone()
     conn.close()
-    return row[0] if row and row[0] else ""
 
-# ================= GET DEPENDENCIES =================
-def get_dependencies(server, database, obj):
-    conn = get_connection(server, database)
-    cursor = conn.cursor()
+    if row and row[0]:
+        return row[0]
+    return ""
 
-    cursor.execute("""
-        SELECT referenced_entity_name
-        FROM sys.sql_expression_dependencies
-        WHERE OBJECT_NAME(referencing_id) = ?
-    """, (obj,))
 
-    uses = [r[0] for r in cursor.fetchall() if r[0]]
-    conn.close()
-    return list(set(uses))
+# -------------------------
+# FIND USED TABLES/OBJECTS
+# -------------------------
+def find_used_objects(definition):
+    used = []
+    tables = re.findall(r'FROM\s+([\w\.]+)', definition, re.IGNORECASE)
+    joins = re.findall(r'JOIN\s+([\w\.]+)', definition, re.IGNORECASE)
 
-# ================= EXTRACT COLUMN MAPPING =================
-def extract_alias_mapping(sql_text):
-    if not sql_text:
-        return []
+    all_used = tables + joins
 
+    for t in all_used:
+        t = t.replace("dbo.", "")
+        if t not in used:
+            used.append(t)
+
+    return used
+
+
+# -------------------------
+# FIND COLUMN MAPPING (AS)
+# -------------------------
+def find_column_mapping(definition):
     mapping = []
-    sql_upper = sql_text.upper()
-
-    # keep only SELECT part
-    if "SELECT" in sql_upper:
-        sql_text = sql_text[sql_upper.index("SELECT"):]
-
-    # Find "col AS alias"
-    pattern = r"(\w+)\s+AS\s+(\w+)"
-    matches = re.findall(pattern, sql_text, re.IGNORECASE)
+    matches = re.findall(r'(\w+)\s+AS\s+(\w+)', definition, re.IGNORECASE)
 
     for original, alias in matches:
-        mapping.append({
-            "original": original,
-            "alias": alias
-        })
+        if original.lower() != alias.lower():
+            mapping.append({"original": original, "alias": alias})
 
     return mapping
 
-# ================= BUILD LINEAGE OBJECTS =================
-def get_lineage_objects(server, database):
-    objects = []
 
-    # Views
-    for v in get_views(server, database):
-        logic = get_definition(server, database, v)
-        deps = get_dependencies(server, database, v)
-        mapping = extract_alias_mapping(logic)
+# -------------------------
+# BUILD LINEAGE OBJECTS
+# -------------------------
+def build_lineage(server, database):
+    objs = get_objects(server, database)
+    lineage = []
 
-        objects.append({
-            "name": v,
-            "type": "VIEW",
-            "uses": deps,
+    for obj in objs:
+        name = obj["name"]
+        obj_type = obj["type"]
+
+        definition = get_definition(server, database, name)
+        used_objects = find_used_objects(definition)
+        mapping = find_column_mapping(definition)
+
+        if obj_type == "VIEW":
+            ttype = "VIEW"
+        else:
+            ttype = "STORED PROCEDURE"
+
+        lineage.append({
+            "name": name,
+            "type": ttype,
+            "uses": used_objects,
             "mapping": mapping
         })
 
-    # Stored Procedures
-    for p in get_procedures(server, database):
-        logic = get_definition(server, database, p)
-        deps = get_dependencies(server, database, p)
-        mapping = extract_alias_mapping(logic)
+    return lineage
 
-        objects.append({
-            "name": p,
-            "type": "STORED PROCEDURE",
-            "uses": deps,
-            "mapping": mapping
-        })
 
-    return objects
-
-# ================= FINAL COLUMN LINEAGE (WITH OBJECT NAMES) =================
+# -------------------------
+# FINAL LINEAGE CHAIN
+# -------------------------
 def build_final_lineage(objects):
     lineage_chains = []
     obj_dict = {obj["name"]: obj for obj in objects}
 
     for obj in objects:
         if obj["type"] == "STORED PROCEDURE":
-
             if not obj["uses"]:
                 continue
 
-            used_view = obj["uses"][0]   # example: vw_empdetails
+            used_obj = obj["uses"][0]
 
             for mp in obj["mapping"]:
-                source_col = mp["original"]   # employeeid
-                target_col = mp["alias"]      # EEID
+                source_col = mp["original"]
+                target_col = mp["alias"]
 
-                # start chain with view -> procedure
                 chain_parts = [
-                    f"{used_view}.{source_col}",
+                    f"{used_obj}.{source_col}",
                     f"{obj['name']}.{target_col}"
                 ]
 
-                # if SP uses view, trace view mapping back to table
-                if used_view in obj_dict:
-                    view_obj = obj_dict[used_view]
+                if used_obj in obj_dict:
+                    view_obj = obj_dict[used_obj]
 
                     if view_obj["uses"]:
-                        base_table = view_obj["uses"][0]  # example: emp
+                        base_table = view_obj["uses"][0]
 
                         for vmap in view_obj["mapping"]:
                             if vmap["alias"].lower() == source_col.lower():
-                                base_col = vmap["original"]  # eid
+                                base_col = vmap["original"]
                                 chain_parts.insert(0, f"{base_table}.{base_col}")
 
                 lineage_chains.append(" → ".join(chain_parts))
 
     return lineage_chains
 
-# ================= HOME PAGE =================
+
+# -------------------------
+# ROUTE
+# -------------------------
 @app.route("/", methods=["GET", "POST"])
 def home():
-    server = ""
-    database = ""
-    dbname = ""
-    structure = {"tables": []}
-    lineage_objects = []
-    final_lineage = []
-    error = ""
-
     if request.method == "POST":
-        server = request.form.get("server")
-        database = request.form.get("database")
+        server1 = request.form.get("server1")
+        db1 = request.form.get("database1")
+
+        server2 = request.form.get("server2")
+        db2 = request.form.get("database2")
 
         try:
-            dbname = get_database_name(server, database)
+            # SERVER 1 DATA
+            tables1 = get_tables(server1, db1)
+            lineage1 = build_lineage(server1, db1)
+            final1 = build_final_lineage(lineage1)
 
-            # Tables with columns
-            table_list = []
-            for t in get_tables(server, database):
-                table_list.append({
-                    "name": t,
-                    "columns": get_table_columns(server, database, t)
-                })
+            # SERVER 2 DATA
+            tables2 = get_tables(server2, db2)
+            lineage2 = build_lineage(server2, db2)
+            final2 = build_final_lineage(lineage2)
 
-            structure = {"tables": table_list}
-
-            lineage_objects = get_lineage_objects(server, database)
-            final_lineage = build_final_lineage(lineage_objects)
+            return render_template(
+                "index.html",
+                server1=server1, db1=db1, tables1=tables1, lineage1=lineage1, final1=final1,
+                server2=server2, db2=db2, tables2=tables2, lineage2=lineage2, final2=final2
+            )
 
         except Exception as e:
-            error = str(e)
+            return render_template("index.html", error=str(e))
 
-    return render_template(
-        "index.html",
-        server=server,
-        database=database,
-        dbname=dbname,
-        structure=structure,
-        lineage=lineage_objects,
-        final_lineage=final_lineage,
-        error=error
-    )
+    return render_template("index.html")
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

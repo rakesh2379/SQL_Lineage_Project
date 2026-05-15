@@ -1,141 +1,195 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>SQL Lineage Table</title>
+    <title>SQL Lineage Dashboard</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
-
 <body>
 
-{% if not dbname %}
-    <!-- CONNECT PAGE -->
-    <h1>🔌 Connect to SQL Server</h1>
+{% if not db1 and not db2 %}
+<h1>🔌 Connect Two SQL Servers</h1>
 
-    <form method="POST" class="formbox">
-        <label>Server Name:</label>
-        <input type="text" name="server" value="{{ server }}" placeholder="Example: .\SQLEXPRESS" required>
+<form method="POST" class="formbox">
 
-        <label>Database Name:</label>
-        <input type="text" name="database" value="{{ database }}" placeholder="Example: LineageDB" required>
+    <h2>Server 1</h2>
+    <label>Server Name:</label>
+    <input type="text" name="server1" placeholder="Example: .\SQLEXPRESS" required>
 
-        <button type="submit">Connect</button>
-    </form>
+    <label>Database Name:</label>
+    <input type="text" name="database1" placeholder="Example: LineageDB" required>
 
-    {% if error %}
-        <p style="color:red;"><b>Error:</b> {{ error }}</p>
-    {% endif %}
+    <hr>
+
+    <h2>Server 2</h2>
+    <label>Server Name:</label>
+    <input type="text" name="server2" placeholder="Example: .\SQLEXPRESS" required>
+
+    <label>Database Name:</label>
+    <input type="text" name="database2" placeholder="Example: LineageDB" required>
+
+    <button type="submit">Connect Both</button>
+</form>
+
+{% if error %}
+<p style="color:red;"><b>Error:</b> {{ error }}</p>
+{% endif %}
 
 {% else %}
-    <!-- OUTPUT PAGE -->
-    <a href="/" style="display:inline-block; margin-bottom:10px; padding:8px; background:#1a237e; color:white; text-decoration:none; border-radius:5px;">
-        🔙 New Connection
-    </a>
 
-    <h1>📊 SQL LINEAGE DASHBOARD</h1>
-    <h2>📂 Database: {{ dbname }}</h2>
+<a href="/" class="btn">🔙 New Connection</a>
 
-    <h2>📊 Tables</h2>
-    <table border="1" cellpadding="10">
-        <tr>
-            <th>Table Name</th>
-            <th>Columns</th>
-        </tr>
-        {% for t in structure.tables %}
-        <tr>
-            <td>{{ t.name }}</td>
-            <td>{{ t.columns | join(", ") }}</td>
-        </tr>
-        {% endfor %}
-    </table>
+<h1>📊 SQL LINEAGE DASHBOARD</h1>
 
-    <br>
+<div class="grid">
 
-    <h2>👁 Views</h2>
-    <table border="1" cellpadding="10">
-        <tr>
-            <th>View Name</th>
-            <th>Uses Table</th>
-            <th>Column Mapping</th>
-        </tr>
+    <!-- SERVER 1 -->
+    <div class="box">
+        <h2>🖥 Server 1: {{ server1 }}</h2>
+        <h3>📂 Database: {{ db1 }}</h3>
 
-        {% for obj in lineage %}
-            {% if obj.type == "VIEW" %}
+        <h3>📊 Tables</h3>
+        <table>
+            <tr><th>Table Name</th><th>Columns</th></tr>
+            {% for t in tables1 %}
             <tr>
-                <td>{{ obj.name }}</td>
-                <td>
-                    {% if obj.uses|length > 0 %}
-                        {{ obj.uses[0] }}
-                    {% else %}
-                        None
-                    {% endif %}
-                </td>
-                <td>
-                    {% if obj.mapping|length > 0 %}
-                        <ul>
-                        {% for m in obj.mapping %}
-                            <li>{{ obj.uses[0] }}.{{ m.original }} → {{ obj.name }}.{{ m.alias }}</li>
-                        {% endfor %}
-                        </ul>
-                    {% else %}
-                        No Mapping
-                    {% endif %}
-                </td>
+                <td>{{ t.name }}</td>
+                <td>{{ t.columns | join(", ") }}</td>
             </tr>
-            {% endif %}
-        {% endfor %}
-    </table>
+            {% endfor %}
+        </table>
 
-    <br>
+        <h3>👁 Views</h3>
+        <table>
+            <tr><th>View Name</th><th>Uses</th><th>Column Mapping</th></tr>
+            {% for obj in lineage1 %}
+                {% if obj.type == "VIEW" %}
+                <tr>
+                    <td>{{ obj.name }}</td>
+                    <td>{{ obj.uses[0] if obj.uses|length > 0 else "None" }}</td>
+                    <td>
+                        {% if obj.mapping|length > 0 %}
+                            <ul>
+                                {% for m in obj.mapping %}
+                                <li>{{ obj.uses[0] }}.{{ m.original }} → {{ obj.name }}.{{ m.alias }}</li>
+                                {% endfor %}
+                            </ul>
+                        {% else %}
+                            No Mapping
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endif %}
+            {% endfor %}
+        </table>
 
-    <h2>⚙ Stored Procedures</h2>
-    <table border="1" cellpadding="10">
-        <tr>
-            <th>Procedure Name</th>
-            <th>Uses</th>
-            <th>Column Mapping</th>
-        </tr>
+        <h3>⚙ Stored Procedures</h3>
+        <table>
+            <tr><th>Procedure Name</th><th>Uses</th><th>Column Mapping</th></tr>
+            {% for obj in lineage1 %}
+                {% if obj.type == "STORED PROCEDURE" %}
+                <tr>
+                    <td>{{ obj.name }}</td>
+                    <td>{{ obj.uses[0] if obj.uses|length > 0 else "None" }}</td>
+                    <td>
+                        {% if obj.mapping|length > 0 %}
+                            <ul>
+                                {% for m in obj.mapping %}
+                                <li>{{ obj.uses[0] }}.{{ m.original }} → {{ obj.name }}.{{ m.alias }}</li>
+                                {% endfor %}
+                            </ul>
+                        {% else %}
+                            No Mapping
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endif %}
+            {% endfor %}
+        </table>
 
-        {% for obj in lineage %}
-            {% if obj.type == "STORED PROCEDURE" %}
+        <h3>🔗 Final Column Lineage</h3>
+        <table>
+            <tr><th>Lineage Chain</th></tr>
+            {% for chain in final1 %}
+            <tr><td>{{ chain }}</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+
+
+    <!-- SERVER 2 -->
+    <div class="box">
+        <h2>🖥 Server 2: {{ server2 }}</h2>
+        <h3>📂 Database: {{ db2 }}</h3>
+
+        <h3>📊 Tables</h3>
+        <table>
+            <tr><th>Table Name</th><th>Columns</th></tr>
+            {% for t in tables2 %}
             <tr>
-                <td>{{ obj.name }}</td>
-                <td>
-                    {% if obj.uses|length > 0 %}
-                        {{ obj.uses[0] }}
-                    {% else %}
-                        None
-                    {% endif %}
-                </td>
-                <td>
-                    {% if obj.mapping|length > 0 %}
-                        <ul>
-                        {% for m in obj.mapping %}
-                            <li>{{ obj.uses[0] }}.{{ m.original }} → {{ obj.name }}.{{ m.alias }}</li>
-                        {% endfor %}
-                        </ul>
-                    {% else %}
-                        No Mapping
-                    {% endif %}
-                </td>
+                <td>{{ t.name }}</td>
+                <td>{{ t.columns | join(", ") }}</td>
             </tr>
-            {% endif %}
-        {% endfor %}
-    </table>
+            {% endfor %}
+        </table>
 
-    <br>
+        <h3>👁 Views</h3>
+        <table>
+            <tr><th>View Name</th><th>Uses</th><th>Column Mapping</th></tr>
+            {% for obj in lineage2 %}
+                {% if obj.type == "VIEW" %}
+                <tr>
+                    <td>{{ obj.name }}</td>
+                    <td>{{ obj.uses[0] if obj.uses|length > 0 else "None" }}</td>
+                    <td>
+                        {% if obj.mapping|length > 0 %}
+                            <ul>
+                                {% for m in obj.mapping %}
+                                <li>{{ obj.uses[0] }}.{{ m.original }} → {{ obj.name }}.{{ m.alias }}</li>
+                                {% endfor %}
+                            </ul>
+                        {% else %}
+                            No Mapping
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endif %}
+            {% endfor %}
+        </table>
 
-    <h2>🔗 Final Column Lineage</h2>
-    <table border="1" cellpadding="10">
-        <tr>
-            <th>Lineage Chain</th>
-        </tr>
+        <h3>⚙ Stored Procedures</h3>
+        <table>
+            <tr><th>Procedure Name</th><th>Uses</th><th>Column Mapping</th></tr>
+            {% for obj in lineage2 %}
+                {% if obj.type == "STORED PROCEDURE" %}
+                <tr>
+                    <td>{{ obj.name }}</td>
+                    <td>{{ obj.uses[0] if obj.uses|length > 0 else "None" }}</td>
+                    <td>
+                        {% if obj.mapping|length > 0 %}
+                            <ul>
+                                {% for m in obj.mapping %}
+                                <li>{{ obj.uses[0] }}.{{ m.original }} → {{ obj.name }}.{{ m.alias }}</li>
+                                {% endfor %}
+                            </ul>
+                        {% else %}
+                            No Mapping
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endif %}
+            {% endfor %}
+        </table>
 
-        {% for chain in final_lineage %}
-        <tr>
-            <td>{{ chain }}</td>
-        </tr>
-        {% endfor %}
-    </table>
+        <h3>🔗 Final Column Lineage</h3>
+        <table>
+            <tr><th>Lineage Chain</th></tr>
+            {% for chain in final2 %}
+            <tr><td>{{ chain }}</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+
+</div>
 
 {% endif %}
 

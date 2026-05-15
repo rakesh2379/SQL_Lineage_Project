@@ -1,7 +1,6 @@
 body {
     font-family: Arial, sans-serif;
     margin: 10px;
-    padding: 0;
     background: #f5f5f5;
     font-size: 12px;
 }
@@ -16,11 +15,17 @@ h2 {
     margin: 5px 0;
 }
 
+h3 {
+    font-size: 13px;
+    margin: 5px 0;
+}
+
 table {
     width: 100%;
     border-collapse: collapse;
     background: white;
     font-size: 11px;
+    margin-bottom: 10px;
 }
 
 th, td {
@@ -32,25 +37,13 @@ th, td {
 
 th {
     background: #e0e0e0;
-    font-weight: bold;
-}
-
-ul {
-    margin: 0;
-    padding-left: 15px;
-}
-
-li {
-    margin: 0;
-    padding: 0;
 }
 
 .formbox {
     background: white;
     padding: 10px;
     border-radius: 6px;
-    width: 350px;
-    margin-bottom: 10px;
+    width: 400px;
 }
 
 .formbox input {
@@ -61,7 +54,7 @@ li {
 }
 
 .formbox button {
-    padding: 6px;
+    padding: 7px;
     width: 100%;
     background: #1a237e;
     color: white;
@@ -70,8 +63,29 @@ li {
     font-size: 12px;
 }
 
-pre {
-    font-size: 10px;
+.btn {
+    display: inline-block;
+    margin-bottom: 10px;
+    padding: 8px;
+    background: #1a237e;
+    color: white;
+    text-decoration: none;
+    border-radius: 5px;
+}
+
+ul {
     margin: 0;
-    padding: 0;
+    padding-left: 15px;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.box {
+    background: white;
+    padding: 10px;
+    border-radius: 8px;
 }
